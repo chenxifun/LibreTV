@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, checkRateLimit, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
+import { extractClientIp } from '@/lib/client-ip';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+  const ip = extractClientIp(req.headers);
   if (!checkRateLimit(ip)) {
     return NextResponse.json(
       { success: false, error: '尝试次数过多，请 10 分钟后再试' },
