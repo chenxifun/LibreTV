@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPrivateIP, isValidProxyUrl } from './ssrf';
+import { isBlockedByDNS, isPrivateIP, isValidProxyUrl } from './ssrf';
 
 describe('isPrivateIP', () => {
   it.each([
@@ -32,8 +32,28 @@ describe('isPrivateIP', () => {
     ['::ffff:8.8.8.8', false],
     ['[::ffff:c0a8:164', true], // 单边括号（异常输入）仍要拦
     ['[2606:4700::1111]', false], // 公网 IPv6 不应被误杀
+    // CGNAT 100.64.0.0/10 全段（旧实现只拦 100.64.* 前缀）
+    ['100.65.0.1', true],       // 网段起点内侧
+    ['100.100.100.200', true],  // 阿里云元数据服务
+    ['100.100.2.136', true],    // 阿里云内网 DNS
+    ['100.127.255.254', true],  // 网段末尾内侧
+    ['100.63.0.1', false],      // 网段外侧不应误杀
+    ['100.128.0.1', false],     // 网段外侧不应误杀
+    // 其余审查发现的保留网段
+    ['198.18.0.1', true],       // benchmark 网段
+    ['192.0.2.1', true],        // TEST-NET-1
+    ['224.0.0.1', true],        // 组播
+    ['240.0.0.1', true],        // 保留（含 255.255.255.255 广播）
+    ['[::ffff:100.100.100.200]', true], // IPv4-mapped 形式也要拦
   ])('%s → %s', (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
+  });
+});
+
+describe('isBlockedByDNS', () => {
+  it('DNS 解析失败时 fail-closed（视为被拦截）', async () => {
+    // 非法主机名触发 lookup 抛错，必须返回 true 而非放行
+    await expect(isBlockedByDNS('http://this-host-does-not-exist-xyz.invalid/')).resolves.toBe(true);
   });
 });
 

@@ -29,7 +29,17 @@ export function isPrivateIP(ip: string): boolean {
   if (v.startsWith('192.168.')) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(v)) return true;
   if (v.startsWith('169.254.')) return true; // 链路本地（含云元数据 169.254.169.254）
-  if (v.startsWith('100.64.')) return true; // CGNAT
+  // CGNAT 100.64.0.0/10：100.64.0.0 – 100.127.255.255（含阿里云元数据 100.100.100.200）
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(v)) return true;
+  // 基准测试网段 198.18.0.0/15（198.18/198.19）
+  if (/^198\.1[89]\./.test(v)) return true;
+  // 文档示例网段 192.0.2.0/24、198.51.100.0/24、203.0.113.0/24
+  if (/^192\.0\.2\./.test(v)) return true;
+  if (/^198\.51\.100\./.test(v)) return true;
+  if (/^203\.0\.113\./.test(v)) return true;
+  // 组播 224.0.0.0/4（224-239）与保留 240.0.0.0/4（240-255，含广播地址）
+  if (/^2(2[4-9]|[34]\d)\./.test(v)) return true;
+  if (/^2(4\d|5[0-5])\./.test(v)) return true;
   if (v.startsWith('192.0.0.')) return true; // 协议分配块
   return false;
 }
@@ -62,7 +72,7 @@ export async function isBlockedByDNS(urlString: string): Promise<boolean> {
     const result = await dns.lookup(hostname, { all: true });
     return result.some((r) => isPrivateIP(r.address));
   } catch {
-    return false; // 解析失败不阻断，交给后续请求处理
+    return true; // fail-closed：解析失败按拦截处理，避免构造无法解析的 host 绕过校验
   }
 }
 

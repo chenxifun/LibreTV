@@ -7,6 +7,19 @@ import { SESSION_COOKIE, signSession } from '@/lib/auth';
  * 上游一律用 mock fetch，不产生真实网络请求。
  */
 
+// 测试用的假域名在真实 DNS 下不可解析；ssrf 的 isBlockedByDNS 是 fail-closed，
+// 故必须 mock DNS 让假域名「解析成功」，测的才是探测逻辑本身
+// （注意 mock 的 IP 必须是真实公网地址 —— 203.0.113.x 等 TEST-NET 段会被判私有）
+vi.mock('node:dns/promises', () => ({
+  default: {
+    // 支持 { all: true }（返回数组）与无选项（返回单对象）两种调用形态
+    lookup: async (hostname: string, opts?: { all?: boolean }) => {
+      const address = hostname.includes('private') ? '10.0.0.1' : '93.184.216.34';
+      return opts?.all ? [{ address, family: 4 }] : { address, family: 4 };
+    },
+  },
+}));
+
 const MASTER = [
   '#EXTM3U',
   '#EXT-X-STREAM-INF:BANDWIDTH=800000,CODECS="hvc1.1.6.L93.B0,mp4a.40.2"',
