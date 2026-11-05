@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '@/components/header';
 import { DetailModal } from '@/components/detail-modal';
-import { AggregatedCard, aggregateResults } from '@/components/video-card';
+import { aggregateResults } from '@/components/video-card';
+import { RandomCard } from '@/components/random-card';
 import { useAuth } from '@/components/auth';
 import { Spinner } from '@/components/states';
 import { useAppStore, resolveSource, isInDisabledSubscription, isSourceDisabled } from '@/lib/store';
@@ -39,8 +40,6 @@ export default function RandomPage() {
   const idRef = useRef(1);
   /** 进入页面自动刷新一次的防重入（React 严格模式 effect 双调） */
   const didAutoRefreshRef = useRef(false);
-  /** 源列表快照：刷新按钮点击瞬间的选中源（防止请求期间源变化引起错乱） */
-  const sourcesRef = useRef<{ sources: typeof selectedSources; filterAdult: boolean } | null>(null);
 
   // 与首页同一套源筛选：去重、URL 合法、未停用、订阅未整体关闭
   const selectedSources = useMemo(() => {
@@ -58,7 +57,6 @@ export default function RandomPage() {
 
   const refresh = useCallback(async () => {
     if (loading) return;
-    sourcesRef.current = { sources: selectedSources, filterAdult: yellowFilter };
     setLoading(true);
     setError('');
     try {
@@ -135,14 +133,9 @@ export default function RandomPage() {
           visibleBatches.map((batch, i) => (
             <section key={batch.id}>
               {i > 0 && <hr className="border-line my-8" />}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
                 {batch.groups.map((group) => (
-                  <AggregatedCard
-                    key={group.key}
-                    group={group}
-                    sources={sourcesRef.current?.sources}
-                    onOpen={(item) => setDetailItem(item)}
-                  />
+                  <RandomCard key={group.key} group={group} onOpen={(item) => setDetailItem(item)} />
                 ))}
               </div>
             </section>
