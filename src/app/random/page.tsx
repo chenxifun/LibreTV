@@ -77,6 +77,16 @@ export default function RandomPage() {
     }
   }, [loading, selectedSources, yellowFilter]);
 
+  // 渲染期按当前 yellowFilter 过滤旧批次：中途打开过滤开关时，已加载的
+  // 成人条目也要隐藏（不修改批次数据，关闭开关可恢复显示）
+  const visibleBatches = useMemo(() => {
+    if (!yellowFilter) return batches;
+    return batches.map((b) => ({
+      ...b,
+      groups: b.groups.filter((g) => !g.items.some((i) => i.isAdult)),
+    }));
+  }, [batches, yellowFilter]);
+
   // 进入页面默认刷新一次（verified 就绪后）
   useEffect(() => {
     if (verified && !didAutoRefreshRef.current && selectedSources.length > 0) {
@@ -113,12 +123,16 @@ export default function RandomPage() {
           </div>
         )}
 
-        {!verified ? null : selectedSources.length === 0 ? (
+        {!verified ? (
+          <div className="border border-dashed border-line rounded-xl p-10 text-center text-muted">
+            等待访问验证...
+          </div>
+        ) : selectedSources.length === 0 ? (
           <div className="border border-dashed border-line rounded-xl p-10 text-center text-muted">
             还没有可用的点播源，请先在右上角「设置」中启用
           </div>
         ) : (
-          batches.map((batch, i) => (
+          visibleBatches.map((batch, i) => (
             <section key={batch.id}>
               {i > 0 && <hr className="border-line my-8" />}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">

@@ -119,9 +119,11 @@ export const api = {
 
   /** 随机片单：服务端随机选源×随机页混洗，不缓存（每次都重新随机） */
   random: (sources: SourceConfig[], filterAdult: boolean) =>
-    request<RandomResponse>(
-      `/api/random?sources=${encodeURIComponent(JSON.stringify(sources))}&filterAdult=${filterAdult ? 1 : 0}`
-    ),
+    request<RandomResponse>('/api/random', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sources, filterAdult }),
+    }),
 
   /**
    * 聚合搜索。传入 onSource 时走 /api/search?stream=1 的 NDJSON 流：

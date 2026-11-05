@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { GET } from './route';
+import { POST } from './route';
 import { SESSION_COOKIE, signSession } from '@/lib/auth';
 
 /**
@@ -43,14 +43,17 @@ function mockUpstream(pages: Record<number, Array<Record<string, unknown>>>, fal
   vi.stubGlobal('fetch', fetchSpy);
 }
 
-function makeGet(params: Record<string, string>, withAuth = true): Request {
-  const qs = new URLSearchParams(params).toString();
-  const headers: Record<string, string> = {};
+function makeGet(body: unknown, withAuth = true): Request {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (withAuth) {
     const { token } = signSession();
     headers.cookie = `${SESSION_COOKIE}=${token}`;
   }
-  return new Request(`https://local.test/api/random?${qs}`, { headers });
+  return new Request('https://local.test/api/random', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
 }
 
 const SOURCES = [
@@ -66,7 +69,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('GET /api/random', () => {
+describe('POST /api/random', () => {
   it('成功：随机页取列表，URL 无 wd 参数（列表模式核心）', async () => {
     // 随机页码落在 1..200，mock 必须对任意页都给内容（否则触发空页回退路径）
     const pages: Record<number, Array<Record<string, unknown>>> = {};
@@ -77,7 +80,7 @@ describe('GET /api/random', () => {
       ];
     }
     mockUpstream(pages);
-    const res = await GET(makeGet({ sources: JSON.stringify(SOURCES), filterAdult: '0' }));
+    const res = await POST(makeGet({ sources: SOURCES, filterAdult: false }));
     expect(res.status).toBe(200);
     const data = (await res.json()) as { list: Array<{ name: string }>; failures: unknown[] };
     expect(data.list.length).toBeGreaterThan(0);
@@ -102,7 +105,7 @@ describe('GET /api/random', () => {
       ];
     }
     mockUpstream(pages);
-    const res = await GET(makeGet({ sources: JSON.stringify([SOURCES[0]]), filterAdult: '1' }));
+    const res = await POST(makeGet({ sources: [SOURCES[0]], filterAdult: true }));
     expect(res.status).toBe(200);
     const data = (await res.json()) as { list: Array<{ name: string }> };
     expect(data.list.map((i) => i.name)).toEqual(['正常片']);
@@ -120,7 +123,7 @@ describe('GET /api/random', () => {
     });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const res = await GET(makeGet({ sources: JSON.stringify(SOURCES), filterAdult: '0' }));
+    const res = await POST(makeGet({ sources: SOURCES, filterAdult: false }));
     expect(res.status).toBe(200);
     const data = (await res.json()) as { list: Array<{ name: string }>; failures: Array<{ sourceKey: string }> };
     expect(data.list.map((i) => i.name)).toContain('好片');
@@ -128,6 +131,8 @@ describe('GET /api/random', () => {
   });
 
   it('随机页为空时回退 pg=1（空页重试逻辑）', async () => {
+    // 固定随机数为非 1 页（Math.random()*200 向下取整=99 → pg=100），确保走回退分支
+    const randSpy = vi.spyOn(Math, 'random').mockReturnValue(99 / 200);
     // 所有非 1 页都返回空列表；pg=1 有内容 → 最终必须拿到内容
     let sawFallback = false;
     fetchSpy.mockReset();
@@ -145,21 +150,44 @@ describe('GET /api/random', () => {
     });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const res = await GET(makeGet({ sources: JSON.stringify([SOURCES[0]]), filterAdult: '0' }));
+    try {
+      const res = await POST(makeGet({ sources: [SOURCES[0]], filterAdult: false }));
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { list: Array<{ name: string }> };
+      expect(sawFallback).toBe(true);
+      expect(data.list.map((i) => i.name)).toContain('最新入库');
+    } finally {
+      randSpy.mockRestore();
+    }
+  });
+
+  it('传入多于 3 个源时只请求随机 3 个（并发放大防护）', async () => {
+    const pages: Record<number, Array<Record<string, unknown>>> = {};
+    for (let p = 1; p <= 200; p++) {
+      pages[p] = [{ vod_id: 1, vod_name: 'x', type_name: '电影' }];
+    }
+    mockUpstream(pages);
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      key: `s${i}`,
+      name: `源${i}`,
+      url: `https://cms-${i}.example.com/api.php`,
+    }));
+    const res = await POST(makeGet({ sources: many, filterAdult: false }));
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { list: Array<{ name: string }> };
-    expect(sawFallback).toBe(true);
-    expect(data.list.map((i) => i.name)).toContain('最新入库');
+    // 20 个源只允许 3 个源、每源至多 2 次请求（随机页 + 可能的空页回退）
+    const hosts = new Set(fetchSpy.mock.calls.map((c) => new URL(String(c[0])).hostname));
+    expect(hosts.size).toBe(3);
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(6);
   });
 
   it('未登录返回 401', async () => {
-    const res = await GET(makeGet({ sources: JSON.stringify(SOURCES) }, false));
+    const res = await POST(makeGet({ sources: SOURCES }, false));
     expect(res.status).toBe(401);
   });
 
   it('sources 缺失或非法 JSON 返回 400', async () => {
-    expect((await GET(makeGet({}))).status).toBe(400);
-    expect((await GET(makeGet({ sources: 'not-json' }))).status).toBe(400);
-    expect((await GET(makeGet({ sources: '{"a":1}' }))).status).toBe(400);
+    expect((await POST(makeGet({}))).status).toBe(400);
+    expect((await POST(makeGet({ sources: 'not-json' }))).status).toBe(400);
+    expect((await POST(makeGet({ sources: { a: 1 } }))).status).toBe(400);
   });
 });

@@ -20,24 +20,29 @@ const RANDOM_ITEM_COUNT = 24;
  * （苹果CMS 接口去掉 wd 即按入库时间倒序的全量列表，pg 翻页），混洗返回。
  * 与搜索共用 SSRF 管线与 CMS 解析；不做缓存——随机结果缓存即失去随机性。
  */
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   const denied = guardRequest(req);
   if (denied) return denied;
 
-  const url = new URL(req.url);
-  const filterAdult = url.searchParams.get('filterAdult') === '1';
-
-  let sources: SourceConfig[];
+  // 源列表走 body：全量源 JSON 编码后动辄数 KB（50 源约 15KB），
+  // 放查询串会撞反代 header 上限（414/431），且源地址（可能含 token）会进访问日志
+  let body: { sources?: unknown; filterAdult?: boolean };
   try {
-    const raw = JSON.parse(url.searchParams.get('sources') || '');
-    if (!Array.isArray(raw)) throw new Error('not array');
-    sources = raw.filter(
-      (s): s is SourceConfig =>
-        s && typeof s === 'object' && typeof s.url === 'string' && typeof s.name === 'string'
-    );
+    body = (await req.json()) as { sources?: unknown; filterAdult?: boolean };
   } catch {
     return NextResponse.json({ error: '无效的源列表' }, { status: 400 });
   }
+  const filterAdult = body.filterAdult === true;
+
+  let sources: SourceConfig[];
+  if (!Array.isArray(body.sources)) {
+    return NextResponse.json({ error: '无效的源列表' }, { status: 400 });
+  }
+  sources = body.sources.filter(
+    (s): s is SourceConfig =>
+      s && typeof s === 'object' &&
+      typeof s.url === 'string' && typeof s.name === 'string' && typeof s.key === 'string'
+  );
   if (sources.length === 0) {
     return NextResponse.json({ error: '无效的源列表' }, { status: 400 });
   }
@@ -86,5 +91,8 @@ export async function GET(req: Request) {
 
   const merged = filterAdultResults(results.flat(), filterAdult);
   const list = shuffleTake(merged, RANDOM_ITEM_COUNT);
-  return NextResponse.json({ list, failures } satisfies RandomResponse);
+  // 随机结果禁缓存：URL 固定的 POST 也可能被中间层按启发式缓存
+  return NextResponse.json({ list, failures } satisfies RandomResponse, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
 }
