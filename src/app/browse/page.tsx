@@ -157,22 +157,22 @@ export default function BrowsePage() {
     setPage(1);
   };
 
-  // 回显文案：折叠态显示已生效条件
-  const appliedSummary = useMemo(() => {
-    if (!applied.url) return null;
-    const parts: string[] = [
-      availableSources.find((s) => s.url === applied.url)?.name ?? '源',
-    ];
+  // 回显 chips：折叠态用与展开态同款的选中 chip 展示已生效条件（视觉连续）
+  const appliedChips = useMemo(() => {
+    if (!applied.url) return [];
+    const chips: string[] = [availableSources.find((s) => s.url === applied.url)?.name ?? '源'];
     const nameOf = (id: number) => categories.find((c) => c.id === id)?.name;
     if (applied.t) {
       const top = categories.find((c) => c.id === applied.t && c.pid === 0);
       const sub = categories.find((c) => c.id === applied.t && c.pid !== 0);
-      parts.push(sub ? `${nameOf(sub.pid)}·${sub.name}` : (top?.name ?? String(applied.t)));
+      chips.push(sub ? `${nameOf(sub.pid)}·${sub.name}` : (top?.name ?? String(applied.t)));
     }
-    if (applied.year) parts.push(`${applied.year}年`);
-    parts.push(SORT_OPTIONS.find((o) => o.value === applied.v)?.label ?? '');
-    return parts.filter(Boolean).join(' · ');
+    if (applied.year) chips.push(`${applied.year}年`);
+    chips.push(SORT_OPTIONS.find((o) => o.value === applied.v)?.label ?? '');
+    return chips.filter(Boolean);
   }, [applied, availableSources, categories]);
+
+  const hasApplied = applied.url !== '';
 
   const pickSourceName = availableSources.find((s) => s.url === draftUrl)?.name;
 
@@ -185,7 +185,7 @@ export default function BrowsePage() {
             <h1 className="text-xl font-bold">片库</h1>
             <p className="text-sm text-muted mt-1">按源浏览分类与年代，发现更多内容</p>
           </div>
-          {appliedSummary && (
+          {hasApplied && (
             <button
               className="btn btn-ghost btn-sm md:hidden"
               onClick={() => setFiltersOpen((v) => !v)}
@@ -206,18 +206,34 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {/* 折叠态：只回显已生效条件 + 展开按钮 */}
+            {/* 折叠态：与展开态同款的选中 chip 回显（视觉连续，点任意处展开） */}
             {!filtersOpen && (
-              <button
-                className="w-full flex items-center gap-2 border border-line rounded-xl px-4 py-3 mb-6 text-left hover:bg-hover transition-colors"
-                onClick={() => setFiltersOpen(true)}
+              <div
+                className="border border-line rounded-xl px-4 py-3 mb-6 flex items-center gap-2 flex-wrap cursor-pointer hover:bg-hover transition-colors"
+                role="button"
+                tabIndex={0}
                 aria-expanded={false}
+                onClick={() => setFiltersOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setFiltersOpen(true);
+                  }
+                }}
               >
                 <Icon name="filter" />
-                <span className="text-sm text-content truncate">{appliedSummary ?? '展开筛选条件'}</span>
+                {hasApplied ? (
+                  appliedChips.map((label) => (
+                    <span key={label} className="chip border bg-accent/10 text-accent font-medium border-accent/30">
+                      {label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted">展开筛选条件</span>
+                )}
                 {dirty && <span className="text-[11px] text-accent shrink-0">有未应用的修改</span>}
                 <Icon name="chevronDown" />
-              </button>
+              </div>
             )}
 
             {/* 展开态：全 chip 平铺筛选面板 */}
