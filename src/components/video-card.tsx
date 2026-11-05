@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SearchResultItem, SourceConfig } from '@/lib/types';
 import { useAppStore } from '@/lib/store';
 import { qualityKey } from '@/lib/quality';
@@ -10,6 +10,8 @@ import { SmartImage } from './smart-image';
 import { QualityBadge } from './quality-badge';
 import { useQualityProbe } from './use-quality-probe';
 import { useInView } from './use-in-view';
+import { useFocusTrap } from './use-focus-trap';
+import { Icon } from './icon';
 
 // —— 跨源同名聚合 ——
 
@@ -69,7 +71,8 @@ export function aggregateResults(list: SearchResultItem[]): AggregatedGroup[] {
 /**
  * 聚合影片卡片：
  * - 单源：点击直接打开该源详情（与旧体验一致）；
- * - 多源：显示「N 个来源」徽章，点击展开各源列表，选择具体源后打开详情。
+ * - 多源：显示「N 个来源」徽章，点击弹出来源选择弹窗（不再原地展开 ——
+ *   展开会把下方卡片顶出去，弹窗不影响页面布局），选择具体源后打开详情。
  */
 export function AggregatedCard({
   group,
@@ -84,7 +87,7 @@ export function AggregatedCard({
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
   const [imgFailed, setImgFailed] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const showImg = !!group.pic && !imgFailed;
 
   const multi = group.items.length > 1;
@@ -92,7 +95,7 @@ export function AggregatedCard({
 
   const { qualities, probing, progress, prime, probe, probeQueued, retry } = useQualityProbe(sources);
 
-  // 收起态就要有结论：先读缓存（展开时才真正探测）。
+  // 收起态就要有结论：先读缓存（弹窗打开时才真正探测）。
   // 依赖 group.key 而不是 items 数组——搜索页每次重渲染都会重建分组对象，
   // 用数组做依赖会让这个 effect 每帧触发，进而 setState 死循环。
   useEffect(() => {
@@ -100,7 +103,7 @@ export function AggregatedCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.key]);
 
-  // 单源卡片没有「展开」这一步：进入视口 500ms 后交给全局队列（并发 2），
+  // 单源卡片没有「选择来源」这一步：进入视口 500ms 后交给全局队列（并发 2），
   // 首屏能先亮，又不会把一屏十几张卡同时打向源站
   const { ref: inViewRef, inView } = useInView<HTMLDivElement>(!multi);
   useEffect(() => {
@@ -110,9 +113,8 @@ export function AggregatedCard({
 
   const activate = () => {
     if (multi) {
-      const next = !expanded;
-      setExpanded(next);
-      if (next) probe(group.items);
+      setPickerOpen(true);
+      probe(group.items);
     } else {
       onOpen(group.items[0]);
     }
@@ -145,14 +147,15 @@ export function AggregatedCard({
   return (
     <div
       ref={inViewRef}
-      className={cn('card', !multi && 'hover:scale-[1.02] hover:shadow-md', multi && expanded && 'ring-1 ring-accent/40')}
+      className={cn('card', !multi && 'hover:scale-[1.02] hover:shadow-md', multi && pickerOpen && 'ring-1 ring-accent/40')}
     >
-      {/* 不用 h-full：展开面板需要撑高卡片，等高裁切会让面板不可见 */}
+      {/* 不用 h-full：等高裁切会让内容溢出被隐藏 */}
       <div
         className="flex h-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
         role="button"
         tabIndex={0}
-        aria-expanded={multi ? expanded : undefined}
+        aria-haspopup={multi ? 'dialog' : undefined}
+        aria-expanded={multi ? pickerOpen : undefined}
         onClick={activate}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -231,7 +234,7 @@ export function AggregatedCard({
                   </span>
                 )}
                 <svg
-                  className={cn('w-4 h-4 text-faint transition-transform', expanded && 'rotate-180')}
+                  className="w-4 h-4 text-faint"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -245,88 +248,174 @@ export function AggregatedCard({
         </div>
       </div>
 
-      {multi && expanded && (
-        <div className="border-t border-line p-2.5 animate-fade-in">
-          <div className="flex items-baseline justify-between gap-2 mb-1.5">
-            <p className="text-[10px] text-faint">
-              选择来源
-              {sharedRemarks ? ` · 均 ${sharedRemarks}` : ''}
-            </p>
+      {multi && pickerOpen && (
+        <SourcePickerModal
+          group={group}
+          sortedItems={sortedItems}
+          qualities={qualities}
+          probing={probing}
+          progress={progress}
+          sharedRemarks={sharedRemarks}
+          bestKey={bestKey}
+          onPick={(item) => {
+            setPickerOpen(false);
+            onOpen(item);
+          }}
+          onClose={() => setPickerOpen(false)}
+          onRetry={retry}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 来源选择弹窗：多源卡片点击后弹出（替代旧的原地展开 —— 展开把下方卡片顶出去，
+ * 弹窗不影响页面布局）。头部展示影片信息（封面/名称/年份/类型），
+ * 列表与旧展开面板同一套「源名 / 画质 / 集数 / 播放」行。
+ */
+function SourcePickerModal({
+  group,
+  sortedItems,
+  qualities,
+  probing,
+  progress,
+  sharedRemarks,
+  bestKey,
+  onPick,
+  onClose,
+  onRetry,
+}: {
+  group: AggregatedGroup;
+  sortedItems: SearchResultItem[];
+  qualities: ReturnType<typeof useQualityProbe>['qualities'];
+  probing: ReturnType<typeof useQualityProbe>['probing'];
+  progress: ReturnType<typeof useQualityProbe>['progress'];
+  sharedRemarks: string | undefined;
+  bestKey: string | undefined;
+  onPick: (item: SearchResultItem) => void;
+  onClose: () => void;
+  onRetry: ReturnType<typeof useQualityProbe>['retry'];
+}) {
+  const imageProxyMode = useAppStore((s) => s.imageProxyMode);
+  const customImageProxy = useAppStore((s) => s.customImageProxy);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(true, panelRef);
+
+  // 弹窗期间锁背景滚动（与 DetailModal 同款）
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`选择来源：${group.name}`}>
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div ref={panelRef} className="relative w-full max-w-md bg-surface border border-line rounded-xl shadow-2xl max-h-[85vh] flex flex-col animate-fade-in">
+        {/* 头部：封面 + 影片信息 */}
+        <div className="flex gap-3 p-4 border-b border-line">
+          <div className="w-16 shrink-0 aspect-[2/3] bg-chip rounded-md overflow-hidden">
+            {group.pic && !posterFailed ? (
+              <SmartImage
+                url={group.pic}
+                mode={imageProxyMode}
+                customProxy={customImageProxy}
+                alt={group.name}
+                className="w-full h-full object-cover"
+                onExhausted={() => setPosterFailed(true)}
+              />
+            ) : null}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-content line-clamp-2" title={group.name}>{group.name}</h3>
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {group.typeName && <span className="tag bg-accent/15 text-accent">{group.typeName}</span>}
+              {group.year && <span className="tag bg-purple-500/15 text-purple-600 dark:text-purple-300">{group.year}</span>}
+              {sharedRemarks && <span className="tag bg-chip text-muted">{sharedRemarks}</span>}
+            </div>
+            <p className="text-xs text-muted mt-1.5">{sortedItems.length} 个来源可用</p>
+          </div>
+          <button
+            className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover shrink-0 self-start"
+            onClick={onClose}
+            aria-label="关闭"
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+
+        {/* 来源列表 */}
+        <div className="overflow-y-auto p-3 flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between gap-2 px-0.5 pb-1">
+            <p className="text-[10px] text-faint">选择来源</p>
             {progress.total > 0 &&
               (progress.done < progress.total ? (
-                <p className="text-[10px] text-faint tabular-nums">
-                  探测中 {progress.done}/{progress.total}
-                </p>
+                <p className="text-[10px] text-faint tabular-nums">探测中 {progress.done}/{progress.total}</p>
               ) : (
-                // 探完后「3/3」已经没有信息量，换成用户真正要的结论
                 <p className="text-[10px] text-accent tabular-nums">
                   {progress.best ? `最高 ${progress.best}` : '未能探到画质'}
                   {progress.failed > 0 ? ` · ${progress.failed} 源未探到` : ''}
                 </p>
               ))}
           </div>
-          {/*
-            单列全宽行：两列在卡片实际宽度（约 330px）下每列只剩 148px，
-            源名必截断，且源数为奇数时必然留半行空。一行内「源名 / 画质 / 集数 / 播放」
-            四段排开，信息密度更高也更容易纵向扫读。
-          */}
-          <div className="flex flex-col gap-1.5">
-            {sortedItems.map((item) => {
-              const itemKey = qualityKey(item.sourceKey, item.vodId);
-              const label = compactRemarks(item.remarks);
-              const isBest = itemKey === bestKey;
-              return (
-                <div
-                  key={`${item.sourceKey}_${item.vodId}`}
-                  role="button"
-                  tabIndex={0}
-                  className={cn(
-                    'group flex w-full min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2',
-                    'text-xs transition-all cursor-pointer',
-                    'bg-chip hover:border-accent hover:bg-accent/10',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
-                    isBest ? 'border-accent/50' : 'border-line',
-                    item.isAdult && 'border-pink-500/30'
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpen(item);
-                  }}
-                  onKeyDown={(e) => {
-                    // 不拦冒泡会连带触发整卡的 activate（外层 div 也在监听 Enter/Space）
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onOpen(item);
-                  }}
-                  aria-label={`使用 ${item.sourceName} 播放${label && !sharedRemarks ? `，${label}` : ''}`}
+          {sortedItems.map((item) => {
+            const itemKey = qualityKey(item.sourceKey, item.vodId);
+            const label = compactRemarks(item.remarks);
+            const isBest = itemKey === bestKey;
+            return (
+              <div
+                key={`${item.sourceKey}_${item.vodId}`}
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  'group flex w-full min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2',
+                  'text-xs transition-all cursor-pointer',
+                  'bg-chip hover:border-accent hover:bg-accent/10',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+                  isBest ? 'border-accent/50' : 'border-line',
+                  item.isAdult && 'border-pink-500/30'
+                )}
+                onClick={() => onPick(item)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  onPick(item);
+                }}
+                aria-label={`使用 ${item.sourceName} 播放${label && !sharedRemarks ? `，${label}` : ''}`}
+              >
+                <span className="font-medium text-content truncate flex-1 min-w-0">{item.sourceName}</span>
+                <QualityBadge
+                  entry={qualities[itemKey]}
+                  loading={probing[itemKey]}
+                  onRetry={() => onRetry([item])}
+                  className="min-w-[3.25rem] justify-center tabular-nums"
+                />
+                {!sharedRemarks && label && (
+                  <span className="text-faint shrink-0 tabular-nums">{label}</span>
+                )}
+                <svg
+                  className="w-3.5 h-3.5 text-accent shrink-0 transition-transform group-hover:translate-x-0.5"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden
                 >
-                  <span className="font-medium text-content truncate flex-1 min-w-0">{item.sourceName}</span>
-                  <QualityBadge
-                    entry={qualities[itemKey]}
-                    loading={probing[itemKey]}
-                    onRetry={() => retry([item])}
-                    // 定宽 + 等宽数字：三行的 360P / 540P / 1080P 左缘对齐，不随字符数抖动
-                    className="min-w-[3.25rem] justify-center tabular-nums"
-                  />
-                  {/* 集数一致时已提到表头，逐行不再重复 */}
-                  {!sharedRemarks && label && (
-                    <span className="text-faint shrink-0 tabular-nums">{label}</span>
-                  )}
-                  <svg
-                    className="w-3.5 h-3.5 text-accent shrink-0 transition-transform group-hover:translate-x-0.5"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden
-                  >
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </div>
-              );
-            })}
-          </div>
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>
     </div>
   );
 }
