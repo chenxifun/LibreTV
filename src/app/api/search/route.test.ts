@@ -8,6 +8,19 @@ import type { SearchResponse, SearchStreamEvent, SourceConfig } from '@/lib/type
  * 失败源不影响整体、SSRF 字面量拒绝。上游一律 mock fetch，无真实网络。
  */
 
+// 测试用的 .example 域名在真实 DNS 下不可解析；ssrf 的 isBlockedByDNS 是
+// fail-closed，故必须 mock DNS 让公网假域名「解析成功」，测的才是 fetch 逻辑本身
+// （注意 mock 的 IP 必须是真实公网地址 —— 203.0.113.x 等 TEST-NET 段会被判私有）
+vi.mock('node:dns/promises', () => ({
+  default: {
+    // 支持 { all: true }（返回数组）与无选项（返回单对象）两种调用形态
+    lookup: async (hostname: string, opts?: { all?: boolean }) => {
+      const address = hostname.includes('private') ? '10.0.0.1' : '93.184.216.34';
+      return opts?.all ? [{ address, family: 4 }] : { address, family: 4 };
+    },
+  },
+}));
+
 function cmsList(items: Array<Record<string, unknown>>, pagecount = 1): string {
   return JSON.stringify({ code: 1, pagecount, list: items });
 }
