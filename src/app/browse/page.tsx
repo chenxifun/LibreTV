@@ -41,6 +41,12 @@ function yearOptions(): number[] {
   return Array.from({ length: 12 }, (_, i) => now - i);
 }
 
+/**
+ * 每页条数：24 = 8 列 × 3 行整（桌面满网格；移动端 3 列 × 8 行也整）。
+ * 苹果CMS pagesize 参数，源不支持时自动回退源默认 20 条。
+ */
+const PAGE_SIZE = 24;
+
 export default function BrowsePage() {
   const customAPIs = useAppStore((s) => s.customAPIs);
   const envSources = useAppStore((s) => s.envSources);
@@ -119,6 +125,7 @@ export default function BrowsePage() {
         year: applied.year || undefined,
         v: applied.v,
         pg: page,
+        pagesize: PAGE_SIZE,
         filterAdult: yellowFilter,
       })
       .then((res) => {
@@ -314,6 +321,12 @@ export default function BrowsePage() {
                 {loading && groups.length === 0 ? (
                   <div className="flex justify-center py-16">
                     <Spinner size="lg" />
+                  </div>
+                ) : groups.length === 0 && !loading ? (
+                  <div className="border border-dashed border-line rounded-xl p-10 text-center text-muted">
+                    {applied.t && !subCats.length
+                      ? '该分类下没有内容，试试选择具体的类型（如「动作片」）'
+                      : '没有符合条件的内容，试试放宽筛选'}
                   </div>
                 ) : (
                   <div className={cn('grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5', loading && 'opacity-50 pointer-events-none')}>

@@ -138,6 +138,7 @@ export const api = {
     year?: string;
     v?: number;
     pg?: number;
+    pagesize?: number;
     filterAdult?: boolean;
   }) =>
     request<{ list: SearchResultItem[]; page: number; pagecount: number }>('/api/browse', {

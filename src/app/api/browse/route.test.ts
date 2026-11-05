@@ -146,6 +146,35 @@ describe('POST /api/browse (list)', () => {
     expect(res.status).toBe(200);
   });
 
+  it('pagesize 透传且有上限（>50 截断为 50）', async () => {
+    let seenSizes: Array<string | null> = [];
+    stubUpstream((u) => {
+      if (u.searchParams.get('ac') === 'videolist') {
+        seenSizes.push(u.searchParams.get('pagesize'));
+        return new Response(
+          JSON.stringify({ code: 1, page: 1, pagecount: 1, total: 1, list: [{ vod_id: 1, vod_name: 'x', type_name: '电影' }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+    });
+    await POST(
+      authed('https://local.test/api/browse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: SOURCE, pg: 1, pagesize: 24 }),
+      })
+    );
+    await POST(
+      authed('https://local.test/api/browse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: SOURCE, pg: 1, pagesize: 500 }),
+      })
+    );
+    expect(seenSizes[0]).toBe('24');
+    expect(seenSizes[1]).toBe('50');
+  });
+
   it('上游 500 时返回 502 与错误信息', async () => {
     stubUpstream(() => new Response('boom', { status: 500 }));
     const res = await POST(

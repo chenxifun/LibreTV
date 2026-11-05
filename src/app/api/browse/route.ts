@@ -83,6 +83,8 @@ interface BrowseBody {
   v?: number;
   wd?: string;
   pg?: number;
+  /** 每页条数：苹果CMS pagesize 参数，部分源支持（不支持则仍返回源默认 20 条） */
+  pagesize?: number;
   filterAdult?: boolean;
 }
 
@@ -116,6 +118,9 @@ export async function POST(req: Request) {
   if (typeof body.wd === 'string' && body.wd.trim()) u.searchParams.set('wd', body.wd.trim());
   const pg = Number.isFinite(body.pg) && Number(body.pg) > 0 ? Math.floor(Number(body.pg)) : 1;
   u.searchParams.set('pg', String(pg));
+  if (Number.isFinite(body.pagesize) && Number(body.pagesize) > 0) {
+    u.searchParams.set('pagesize', String(Math.min(50, Math.floor(Number(body.pagesize)))));
+  }
 
   let json: { page?: unknown; pagecount?: unknown };
   try {
