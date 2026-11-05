@@ -34,11 +34,10 @@ export async function POST(req: Request) {
   }
   const filterAdult = body.filterAdult === true;
 
-  let sources: SourceConfig[];
   if (!Array.isArray(body.sources)) {
     return NextResponse.json({ error: '无效的源列表' }, { status: 400 });
   }
-  sources = body.sources.filter(
+  const sources: SourceConfig[] = body.sources.filter(
     (s): s is SourceConfig =>
       s && typeof s === 'object' &&
       typeof s.url === 'string' && typeof s.name === 'string' && typeof s.key === 'string'
