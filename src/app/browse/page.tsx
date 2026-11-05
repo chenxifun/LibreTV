@@ -7,6 +7,7 @@ import { RandomCard } from '@/components/random-card';
 import { aggregateResults } from '@/components/video-card';
 import { useAuth } from '@/components/auth';
 import { Spinner } from '@/components/states';
+import { Icon } from '@/components/icon';
 import { useAppStore, resolveSource } from '@/lib/store';
 import { api } from '@/lib/client-api';
 import type { SearchResultItem, SourceConfig } from '@/lib/types';
@@ -16,7 +17,10 @@ import { cn } from '@/lib/utils';
 /**
  * 片库检索：先选点播源 → 动态加载该源分类树（分类/类型两级级联）
  * → 可选年代/排序 → 分页浏览。检索条件全部来自源接口，无硬编码。
- * 排序 v 参数是苹果CMS 通用约定：0更新 1添加 2人气 3评分（各源实现不一，尽力而为）。
+ *
+ * 交互约定（与自动刷新版本的区别）：筛选条件改动只进「草稿」，
+ * 点「检索」才提交并请求 —— 条件多时避免每选一项就打一次源站。
+ * 折叠态只回显已选条件，展开编辑。
  */
 interface Category {
   id: number;
@@ -44,13 +48,15 @@ export default function BrowsePage() {
   const yellowFilter = useAppStore((s) => s.yellowFilter);
   const { verified } = useAuth();
 
-  const [sourceUrl, setSourceUrl] = useState('');
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [catLoading, setCatLoading] = useState(false);
-  const [topCat, setTopCat] = useState<number | ''>('');
-  const [subCat, setSubCat] = useState<number | ''>('');
-  const [year, setYear] = useState('');
-  const [sort, setSort] = useState(0);
+  // —— 草稿（用户正在编辑的条件）与已提交（当前结果对应的条件）分离 ——
+  const [draftUrl, setDraftUrl] = useState('');
+  const [draftTop, setDraftTop] = useState<number | ''>('');
+  const [draftSub, setDraftSub] = useState<number | ''>('');
+  const [draftYear, setDraftYear] = useState('');
+  const [draftSort, setDraftSort] = useState(0);
+  const [applied, setApplied] = useState({ url: '', t: undefined as number | undefined, year: '', v: 0 });
+
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [page, setPage] = useState(1);
   const [groups, setGroups] = useState<ReturnType<typeof aggregateResults>>([]);
   const [pageInfo, setPageInfo] = useState({ page: 1, pagecount: 1 });
@@ -58,7 +64,10 @@ export default function BrowsePage() {
   const [error, setError] = useState('');
   const [detailItem, setDetailItem] = useState<SearchResultItem | null>(null);
 
-  // 已启用且有效的源（不做健康度过滤：检索场景用户明确指定源）
+  // 分类树跟随「草稿源」加载：让用户在选完源、点检索前就能看到分类选项
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [catLoading, setCatLoading] = useState(false);
+
   const availableSources = useMemo(() => {
     const seen = new Set<string>();
     return [...customAPIs, ...envSources]
@@ -66,30 +75,23 @@ export default function BrowsePage() {
       .filter((s) => selectedKeys.length === 0 || selectedKeys.includes(s.key));
   }, [customAPIs, envSources, selectedKeys]);
 
-  const currentSource = useMemo(
-    () => availableSources.find((s) => s.url === sourceUrl),
-    [availableSources, sourceUrl]
-  );
-
-  // 分类树：一级（分类）与二级（内容类型）由 type_pid 组装
   const topCats = useMemo(() => categories.filter((c) => c.pid === 0), [categories]);
   const subCats = useMemo(
-    () => (topCat === '' ? [] : categories.filter((c) => c.pid === topCat)),
-    [categories, topCat]
+    () => (draftTop === '' ? [] : categories.filter((c) => c.pid === draftTop)),
+    [categories, draftTop]
   );
 
-  // 选源 → 拉分类树；源变化时重置级联筛选与页码
+  // 草稿源变化 → 拉分类树 + 重置级联
   useEffect(() => {
-    if (!sourceUrl) return;
+    if (!draftUrl) return;
     let cancelled = false;
     setCatLoading(true);
     setCategories([]);
-    setTopCat('');
-    setSubCat('');
-    setPage(1);
+    setDraftTop('');
+    setDraftSub('');
     setError('');
     api
-      .browseCategories({ key: '', name: '', url: sourceUrl })
+      .browseCategories({ key: '', name: '', url: draftUrl })
       .then((res) => {
         if (!cancelled) setCategories(res.categories);
       })
@@ -102,25 +104,20 @@ export default function BrowsePage() {
     return () => {
       cancelled = true;
     };
-  }, [sourceUrl]);
+  }, [draftUrl]);
 
-  // 检索条件变化 → 自动回第 1 页并查询
+  // 已提交条件查询（点检索 / 翻页时触发）
   useEffect(() => {
-    setPage(1);
-  }, [sourceUrl, topCat, subCat, year, sort]);
-
-  // 查询（源+条件+页码 任一变化）
-  useEffect(() => {
-    if (!verified || !sourceUrl) return;
+    if (!verified || !applied.url) return;
     let cancelled = false;
     setLoading(true);
     setError('');
     api
       .browseList({
-        source: { key: '', name: '', url: sourceUrl },
-        t: subCat || topCat || undefined,
-        year: year || undefined,
-        v: sort,
+        source: { key: '', name: '', url: applied.url },
+        t: applied.t,
+        year: applied.year || undefined,
+        v: applied.v,
         pg: page,
         filterAdult: yellowFilter,
       })
@@ -140,7 +137,37 @@ export default function BrowsePage() {
     return () => {
       cancelled = true;
     };
-  }, [verified, sourceUrl, topCat, subCat, year, sort, page, yellowFilter]);
+  }, [verified, applied, page, yellowFilter]);
+
+  const dirty =
+    draftUrl !== applied.url ||
+    (draftSub || draftTop || undefined) !== applied.t ||
+    draftYear !== applied.year ||
+    draftSort !== applied.v;
+
+  const submit = () => {
+    setApplied({ url: draftUrl, t: draftSub || draftTop || undefined, year: draftYear, v: draftSort });
+    setPage(1);
+  };
+
+  // 回显文案：折叠态显示已生效条件
+  const appliedSummary = useMemo(() => {
+    if (!applied.url) return null;
+    const parts: string[] = [
+      availableSources.find((s) => s.url === applied.url)?.name ?? '源',
+    ];
+    const nameOf = (id: number) => categories.find((c) => c.id === id)?.name;
+    if (applied.t) {
+      const top = categories.find((c) => c.id === applied.t && c.pid === 0);
+      const sub = categories.find((c) => c.id === applied.t && c.pid !== 0);
+      parts.push(sub ? `${nameOf(sub.pid)}·${sub.name}` : (top?.name ?? String(applied.t)));
+    }
+    if (applied.year) parts.push(`${applied.year}年`);
+    parts.push(SORT_OPTIONS.find((o) => o.value === applied.v)?.label ?? '');
+    return parts.filter(Boolean).join(' · ');
+  }, [applied, availableSources, categories]);
+
+  const pickSourceName = availableSources.find((s) => s.url === draftUrl)?.name;
 
   return (
     <div className="min-h-screen">
@@ -151,6 +178,15 @@ export default function BrowsePage() {
             <h1 className="text-xl font-bold">片库</h1>
             <p className="text-sm text-muted mt-1">按源浏览分类与年代，发现更多内容</p>
           </div>
+          {appliedSummary && (
+            <button
+              className="btn btn-ghost btn-sm md:hidden"
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-expanded={filtersOpen}
+            >
+              {filtersOpen ? '收起筛选' : '筛选'}
+            </button>
+          )}
         </div>
 
         {!verified ? (
@@ -163,94 +199,115 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {/* 筛选条 */}
-            <div className="flex flex-wrap items-center gap-2 mb-6">
-              <select
-                aria-label="选择点播源"
-                className="input h-9 w-44"
-                value={sourceUrl}
-                onChange={(e) => setSourceUrl(e.target.value)}
+            {/* 折叠态：只回显已生效条件 + 展开按钮 */}
+            {!filtersOpen && (
+              <button
+                className="w-full flex items-center gap-2 border border-line rounded-xl px-4 py-3 mb-6 text-left hover:bg-hover transition-colors"
+                onClick={() => setFiltersOpen(true)}
+                aria-expanded={false}
               >
-                <option value="">选择点播源…</option>
-                {availableSources.map((s) => (
-                  <option key={s.url} value={s.url}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                <Icon name="filter" />
+                <span className="text-sm text-content truncate">{appliedSummary ?? '展开筛选条件'}</span>
+                {dirty && <span className="text-[11px] text-accent shrink-0">有未应用的修改</span>}
+                <Icon name="chevronDown" />
+              </button>
+            )}
 
-              {catLoading && <Spinner size="sm" />}
-
-              {topCats.length > 0 && (
-                <select
-                  aria-label="分类"
-                  className="input h-9 w-28"
-                  value={topCat}
-                  onChange={(e) => {
-                    setTopCat(e.target.value ? Number(e.target.value) : '');
-                    setSubCat('');
-                  }}
-                >
-                  <option value="">全部分类</option>
-                  {topCats.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+            {/* 展开态：全 chip 平铺筛选面板 */}
+            {filtersOpen && (
+              <div className="border border-line rounded-xl p-4 mb-6">
+                {/* 源 */}
+                <FilterRow label="源">
+                  {availableSources.map((s) => (
+                    <Chip key={s.url} active={draftUrl === s.url} onClick={() => setDraftUrl(s.url)}>
+                      {s.name}
+                    </Chip>
                   ))}
-                </select>
-              )}
+                </FilterRow>
 
-              {subCats.length > 0 && (
-                <select
-                  aria-label="类型"
-                  className="input h-9 w-28"
-                  value={subCat}
-                  onChange={(e) => setSubCat(e.target.value ? Number(e.target.value) : '')}
-                >
-                  <option value="">全部类型</option>
-                  {subCats.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+                {draftUrl && catLoading && (
+                  <div className="py-2">
+                    <Spinner size="sm" />
+                  </div>
+                )}
+
+                {/* 分类（一级） */}
+                {topCats.length > 0 && (
+                  <FilterRow label="分类">
+                    <Chip active={draftTop === ''} onClick={() => { setDraftTop(''); setDraftSub(''); }}>
+                      全部
+                    </Chip>
+                    {topCats.map((c) => (
+                      <Chip
+                        key={c.id}
+                        active={draftTop === c.id || draftSub !== '' && categories.find((x) => x.id === draftSub)?.pid === c.id}
+                        onClick={() => {
+                          setDraftTop(c.id);
+                          setDraftSub('');
+                        }}
+                      >
+                        {c.name}
+                      </Chip>
+                    ))}
+                  </FilterRow>
+                )}
+
+                {/* 类型（二级，随分类变化） */}
+                {subCats.length > 0 && (
+                  <FilterRow label="类型">
+                    <Chip active={draftTop !== '' && draftSub === ''} onClick={() => setDraftSub('')}>
+                      全部
+                    </Chip>
+                    {subCats.map((c) => (
+                      <Chip key={c.id} active={draftSub === c.id} onClick={() => setDraftSub(c.id)}>
+                        {c.name}
+                      </Chip>
+                    ))}
+                  </FilterRow>
+                )}
+
+                {/* 年代 */}
+                <FilterRow label="年代">
+                  <Chip active={draftYear === ''} onClick={() => setDraftYear('')}>
+                    全部
+                  </Chip>
+                  {yearOptions().map((y) => (
+                    <Chip key={y} active={draftYear === String(y)} onClick={() => setDraftYear(String(y))}>
+                      {y}
+                    </Chip>
                   ))}
-                </select>
-              )}
+                </FilterRow>
 
-              <select
-                aria-label="年代"
-                className="input h-9 w-24"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              >
-                <option value="">全部年代</option>
-                {yearOptions().map((y) => (
-                  <option key={y} value={String(y)}>
-                    {y}
-                  </option>
-                ))}
-              </select>
+                {/* 排序 */}
+                <FilterRow label="排序">
+                  {SORT_OPTIONS.map((o) => (
+                    <Chip key={o.value} active={draftSort === o.value} onClick={() => setDraftSort(o.value)}>
+                      {o.label}
+                    </Chip>
+                  ))}
+                </FilterRow>
 
-              <select
-                aria-label="排序"
-                className="input h-9 w-28"
-                value={sort}
-                onChange={(e) => setSort(Number(e.target.value))}
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {/* 操作行 */}
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-line">
+                  <button className="btn btn-primary" onClick={submit} disabled={!draftUrl}>
+                    {loading ? <Spinner size="sm" /> : <Icon name="search" />}
+                    检索
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => setFiltersOpen(false)} disabled={!applied.url}>
+                    收起
+                  </button>
+                  {dirty && <span className="text-[11px] text-accent">条件已修改，点检索生效</span>}
+                </div>
+              </div>
+            )}
 
             {error && (
               <div className="border border-line rounded-xl p-4 mb-6 text-sm text-muted">{error}</div>
             )}
 
-            {!sourceUrl ? (
+            {!applied.url ? (
               <div className="border border-dashed border-line rounded-xl p-10 text-center text-muted">
-                选择一个点播源开始浏览
+                {pickSourceName ? `已选「${pickSourceName}」，设置条件后点「检索」` : '选择一个点播源开始浏览'}
               </div>
             ) : (
               <>
@@ -259,7 +316,7 @@ export default function BrowsePage() {
                     <Spinner size="lg" />
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
+                  <div className={cn('grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5', loading && 'opacity-50 pointer-events-none')}>
                     {groups.map((g) => (
                       <RandomCard key={g.key} group={g} onOpen={(item) => setDetailItem(item)} />
                     ))}
@@ -296,5 +353,33 @@ export default function BrowsePage() {
 
       <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />
     </div>
+  );
+}
+
+/** 一行筛选：左侧灰色标签 + 右侧 chip 平铺（可换行） */
+function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 py-1.5">
+      <span className="text-xs text-faint w-8 shrink-0 pt-1 text-right">{label}</span>
+      <div className="flex flex-wrap gap-1.5 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/** 筛选 chip：选中态与 source-manager 的筛选 chip 同款视觉 */
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      className={cn(
+        'chip border',
+        active
+          ? 'bg-accent/10 text-accent font-medium border-accent/30'
+          : 'text-muted border-line hover:text-content hover:bg-hover'
+      )}
+      onClick={onClick}
+      aria-pressed={active}
+    >
+      {children}
+    </button>
   );
 }
