@@ -185,15 +185,6 @@ export default function BrowsePage() {
             <h1 className="text-xl font-bold">片库</h1>
             <p className="text-sm text-muted mt-1">按源浏览分类与年代，发现更多内容</p>
           </div>
-          {hasApplied && (
-            <button
-              className="btn btn-ghost btn-sm md:hidden"
-              onClick={() => setFiltersOpen((v) => !v)}
-              aria-expanded={filtersOpen}
-            >
-              {filtersOpen ? '收起筛选' : '筛选'}
-            </button>
-          )}
         </div>
 
         {!verified ? (
@@ -206,37 +197,30 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {/* 折叠态：与展开态同款的选中 chip 回显（视觉连续，点任意处展开） */}
-            {!filtersOpen && (
-              <div
-                className="border border-line rounded-xl px-4 py-3 mb-6 flex items-center gap-2 flex-wrap cursor-pointer hover:bg-hover transition-colors"
-                role="button"
-                tabIndex={0}
-                aria-expanded={false}
-                onClick={() => setFiltersOpen(true)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setFiltersOpen(true);
-                  }
-                }}
+            {/* 筛选 title 行：常驻显示已生效条件 + 折叠按钮（只收起选项区，title 不动） */}
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              <Icon name="filter" />
+              {hasApplied ? (
+                appliedChips.map((label) => (
+                  <span key={label} className="chip border bg-accent/10 text-accent font-medium border-accent/30">
+                    {label}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-muted">未设置筛选条件</span>
+              )}
+              {dirty && <span className="text-[11px] text-accent shrink-0">有未应用的修改</span>}
+              <button
+                className="btn btn-ghost btn-sm ml-auto"
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-expanded={filtersOpen}
               >
-                <Icon name="filter" />
-                {hasApplied ? (
-                  appliedChips.map((label) => (
-                    <span key={label} className="chip border bg-accent/10 text-accent font-medium border-accent/30">
-                      {label}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-sm text-muted">展开筛选条件</span>
-                )}
-                {dirty && <span className="text-[11px] text-accent shrink-0">有未应用的修改</span>}
-                <Icon name="chevronDown" />
-              </div>
-            )}
+                {filtersOpen ? '收起' : '展开'}
+                <Icon name="chevronDown" className={cn('transition-transform', filtersOpen && 'rotate-180')} />
+              </button>
+            </div>
 
-            {/* 展开态：全 chip 平铺筛选面板 */}
+            {/* 选项区：全 chip 平铺，随折叠收起 */}
             {filtersOpen && (
               <div className="border border-line rounded-xl p-4 mb-6">
                 {/* 源 */}
@@ -315,9 +299,6 @@ export default function BrowsePage() {
                   <button className="btn btn-primary" onClick={submit} disabled={!draftUrl}>
                     {loading ? <Spinner size="sm" /> : <Icon name="search" />}
                     检索
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => setFiltersOpen(false)} disabled={!applied.url}>
-                    收起
                   </button>
                   {dirty && <span className="text-[11px] text-accent">条件已修改，点检索生效</span>}
                 </div>
