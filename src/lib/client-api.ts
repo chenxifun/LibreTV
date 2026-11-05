@@ -125,6 +125,28 @@ export const api = {
       body: JSON.stringify({ sources, filterAdult }),
     }),
 
+  /** 片库：拉取指定源自己的分类树（两级，动态无硬编码） */
+  browseCategories: (source: SourceConfig) =>
+    request<{ categories: Array<{ id: number; pid: number; name: string }> }>(
+      `/api/browse?categories=1&url=${encodeURIComponent(source.url)}`
+    ),
+
+  /** 片库：按分类/类型/年代/排序分页浏览 */
+  browseList: (params: {
+    source: SourceConfig;
+    t?: number;
+    year?: string;
+    v?: number;
+    pg?: number;
+    pagesize?: number;
+    filterAdult?: boolean;
+  }) =>
+    request<{ list: SearchResultItem[]; page: number; pagecount: number }>('/api/browse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    }),
+
   /**
    * 聚合搜索。传入 onSource 时走 /api/search?stream=1 的 NDJSON 流：
    * 每个源结算立即回调（健康源结果不再等坏源超时），最终以聚合结果 resolve。
