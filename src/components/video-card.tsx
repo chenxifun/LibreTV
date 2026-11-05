@@ -354,9 +354,9 @@ function SourcePickerModal({
           </button>
         </div>
 
-        {/* 来源列表 */}
-        <div className="overflow-y-auto p-3 flex flex-col gap-1.5">
-          <div className="flex items-baseline justify-between gap-2 px-0.5 pb-1">
+        {/* 来源列表：短胶囊横排换行（来源多时纵向列表会撑高弹窗） */}
+        <div className="overflow-y-auto p-3">
+          <div className="flex items-baseline justify-between gap-2 px-0.5 pb-2">
             <p className="text-[10px] text-faint">选择来源</p>
             {progress.total > 0 &&
               (progress.done < progress.total ? (
@@ -368,52 +368,44 @@ function SourcePickerModal({
                 </p>
               ))}
           </div>
-          {sortedItems.map((item) => {
-            const itemKey = qualityKey(item.sourceKey, item.vodId);
-            const label = compactRemarks(item.remarks);
-            const isBest = itemKey === bestKey;
-            return (
-              <div
-                key={`${item.sourceKey}_${item.vodId}`}
-                role="button"
-                tabIndex={0}
-                className={cn(
-                  'group flex w-full min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2',
-                  'text-xs transition-all cursor-pointer',
-                  'bg-chip hover:border-accent hover:bg-accent/10',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
-                  isBest ? 'border-accent/50' : 'border-line',
-                  item.isAdult && 'border-pink-500/30'
-                )}
-                onClick={() => onPick(item)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  onPick(item);
-                }}
-                aria-label={`使用 ${item.sourceName} 播放${label && !sharedRemarks ? `，${label}` : ''}`}
-              >
-                <span className="font-medium text-content truncate flex-1 min-w-0">{item.sourceName}</span>
-                <QualityBadge
-                  entry={qualities[itemKey]}
-                  loading={probing[itemKey]}
-                  onRetry={() => onRetry([item])}
-                  className="min-w-[3.25rem] justify-center tabular-nums"
-                />
-                {!sharedRemarks && label && (
-                  <span className="text-faint shrink-0 tabular-nums">{label}</span>
-                )}
-                <svg
-                  className="w-3.5 h-3.5 text-accent shrink-0 transition-transform group-hover:translate-x-0.5"
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden
+          <div className="flex flex-wrap gap-1.5">
+            {sortedItems.map((item) => {
+              const itemKey = qualityKey(item.sourceKey, item.vodId);
+              const isBest = itemKey === bestKey;
+              const entry = qualities[itemKey];
+              // 胶囊内画质以文字后缀呈现（1080P 等），加载中省略号，失败不占位
+              const qualityText = probing[itemKey] ? '…' : entry?.height ? `${entry.height}P` : '';
+              return (
+                <div
+                  key={`${item.sourceKey}_${item.vodId}`}
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5',
+                    'text-xs transition-all cursor-pointer whitespace-nowrap',
+                    'bg-chip hover:border-accent hover:bg-accent/10',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+                    isBest ? 'border-accent/50' : 'border-line',
+                    item.isAdult && 'border-pink-500/30'
+                  )}
+                  onClick={() => onPick(item)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    onPick(item);
+                  }}
+                  aria-label={`使用 ${item.sourceName} 播放${qualityText ? `，${qualityText}` : ''}`}
                 >
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </div>
-            );
-          })}
+                  <span className="font-medium text-content truncate max-w-[9rem]">{item.sourceName}</span>
+                  {qualityText && (
+                    <span className={cn('text-[10px] tabular-nums', isBest ? 'text-accent font-medium' : 'text-faint')}>
+                      {qualityText}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
