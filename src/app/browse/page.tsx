@@ -197,32 +197,36 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {/* 筛选 title 行：常驻显示已生效条件 + 折叠按钮（只收起选项区，title 不动） */}
-            <div className="flex items-center gap-2 flex-wrap mb-3">
-              <Icon name="filter" />
-              {hasApplied ? (
-                appliedChips.map((label) => (
-                  <span key={label} className="chip border bg-accent/10 text-accent font-medium border-accent/30">
-                    {label}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-muted">未设置筛选条件</span>
-              )}
-              {dirty && <span className="text-[11px] text-accent shrink-0">有未应用的修改</span>}
-              <button
-                className="btn btn-ghost btn-sm ml-auto"
-                onClick={() => setFiltersOpen((v) => !v)}
-                aria-expanded={filtersOpen}
-              >
-                {filtersOpen ? '收起' : '展开'}
-                <Icon name="chevronDown" className={cn('transition-transform', filtersOpen && 'rotate-180')} />
-              </button>
-            </div>
+            {/* 筛选区：单容器（圆角矩形），title 行在上、选项区在下，中间横线分隔；
+                折叠时选项区收起，容器缩成只剩 title 的圆角长条 */}
+            <div className="border border-line rounded-xl mb-6">
+              {/* title 行（常驻） */}
+              <div className="flex items-center gap-2 flex-wrap px-4 py-3">
+                <Icon name="filter" />
+                {hasApplied ? (
+                  appliedChips.map((label) => (
+                    <span key={label} className="chip border bg-accent/10 text-accent font-medium border-accent/30">
+                      {label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted">未设置筛选条件</span>
+                )}
+                {dirty && <span className="text-[11px] text-accent shrink-0">有未应用的修改</span>}
+                <button
+                  className="ml-auto p-1.5 rounded-md text-muted hover:text-content hover:bg-hover transition-colors"
+                  onClick={() => setFiltersOpen((v) => !v)}
+                  aria-expanded={filtersOpen}
+                  aria-label={filtersOpen ? '收起筛选' : '展开筛选'}
+                  title={filtersOpen ? '收起筛选' : '展开筛选'}
+                >
+                  <Icon name="chevronDown" className={cn('w-5 h-5 transition-transform', filtersOpen && 'rotate-180')} />
+                </button>
+              </div>
 
-            {/* 选项区：全 chip 平铺，随折叠收起 */}
-            {filtersOpen && (
-              <div className="border border-line rounded-xl p-4 mb-6">
+              {/* 选项区：全 chip 平铺，折叠时整体收起（含分隔横线） */}
+              {filtersOpen && (
+                <div className="border-t border-line px-4 pt-3 pb-4">
                 {/* 源 */}
                 <FilterRow label="源">
                   {availableSources.map((s) => (
@@ -304,6 +308,7 @@ export default function BrowsePage() {
                 </div>
               </div>
             )}
+            </div>
 
             {error && (
               <div className="border border-line rounded-xl p-4 mb-6 text-sm text-muted">{error}</div>
