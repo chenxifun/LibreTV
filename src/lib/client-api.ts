@@ -1,6 +1,6 @@
 'use client';
 
-import type { SearchResponse, SearchStreamEvent, SourceSearchOutcome, VideoDetail, DoubanResponse, BangumiCalendarResponse, AuthStatusResponse, SourceConfig, SearchResultItem, LivePlaylistResponse, LiveEpgResponse, SourceListPayload, QualityProbeItem, QualityProbeResult } from './types';
+import type { SearchResponse, SearchStreamEvent, SourceSearchOutcome, VideoDetail, DoubanResponse, BangumiCalendarResponse, AuthStatusResponse, SourceConfig, SearchResultItem, LivePlaylistResponse, LiveEpgResponse, SourceListPayload, QualityProbeItem, QualityProbeResult, RandomResponse } from './types';
 
 /**
  * 客户端 API 封装。401 时触发全局事件打开登录框，
@@ -116,6 +116,12 @@ export const api = {
     }),
 
   logout: () => request<{ success: boolean }>('/api/auth', { method: 'DELETE' }),
+
+  /** 随机片单：服务端随机选源×随机页混洗，不缓存（每次都重新随机） */
+  random: (sources: SourceConfig[], filterAdult: boolean) =>
+    request<RandomResponse>(
+      `/api/random?sources=${encodeURIComponent(JSON.stringify(sources))}&filterAdult=${filterAdult ? 1 : 0}`
+    ),
 
   /**
    * 聚合搜索。传入 onSource 时走 /api/search?stream=1 的 NDJSON 流：
