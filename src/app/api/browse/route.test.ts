@@ -147,7 +147,7 @@ describe('POST /api/browse (list)', () => {
   });
 
   it('pagesize 透传且有上限（>50 截断为 50）', async () => {
-    let seenSizes: Array<string | null> = [];
+    const seenSizes: Array<string | null> = [];
     stubUpstream((u) => {
       if (u.searchParams.get('ac') === 'videolist') {
         seenSizes.push(u.searchParams.get('pagesize'));
