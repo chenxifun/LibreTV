@@ -105,6 +105,12 @@ export interface SearchResponse {
   failures: { sourceKey: string; error: string; timedOut?: boolean }[];
 }
 
+/** /api/random 响应：随机片单（无缓存，每次请求都重新随机） */
+export interface RandomResponse {
+  list: SearchResultItem[];
+  failures: { sourceKey: string; error: string }[];
+}
+
 /** /api/search?stream=1 的 NDJSON 事件：逐源推送 + 最终聚合 */
 export type SearchStreamEvent =
   | ({ type: 'source' } & SourceSearchOutcome)
