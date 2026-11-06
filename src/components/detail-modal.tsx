@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/client-api';
 import type { SearchResultItem, VideoDetail } from '@/lib/types';
@@ -30,6 +30,9 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
   const [error, setError] = useState('');
   const [reversed, setReversed] = useState(false);
   const [posterFailed, setPosterFailed] = useState(false);
+  /** 简介展开态：换片（item 变化）时复位 */
+  const [descExpanded, setDescExpanded] = useState(false);
+  useEffect(() => setDescExpanded(false), [item?.vodId]);
   const abortRef = useRef<AbortController | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +90,15 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [item, onClose]);
+
+  // 简介：部分源（量子/魔都等）的 vod_content 带 <p> 等 HTML 标签，
+  // 源数据不可信不能直接渲染 HTML，剥离标签只留纯文本。
+  // （必须在早退 return 之前调用：hooks 顺序不能随 item 开关变化）
+  const descText = useMemo(
+    () => (item ? (detail?.videoInfo.desc || '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim() : ''),
+    [item, detail?.videoInfo.desc]
+  );
+  const descOverflow = descText.length > 120;
 
   if (!item) return null;
 
@@ -186,8 +198,26 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
                       ))}
                     </div>
                   )}
-                  {info?.desc && (
-                    <p className="text-sm text-muted leading-relaxed line-clamp-3">{info.desc}</p>
+                  {descText && (
+                    <div>
+                      <p
+                        className={cn(
+                          'text-sm text-muted leading-relaxed whitespace-pre-wrap',
+                          !descExpanded && 'line-clamp-3'
+                        )}
+                      >
+                        {descText}
+                      </p>
+                      {descOverflow && (
+                        <button
+                          className="text-xs text-accent hover:underline mt-1"
+                          onClick={() => setDescExpanded((v) => !v)}
+                          aria-expanded={descExpanded}
+                        >
+                          {descExpanded ? '收起' : '展开全部'}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
