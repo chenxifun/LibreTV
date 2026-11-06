@@ -91,6 +91,15 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
     return () => window.removeEventListener('keydown', handler);
   }, [item, onClose]);
 
+  // 简介：部分源（量子/魔都等）的 vod_content 带 <p> 等 HTML 标签，
+  // 源数据不可信不能直接渲染 HTML，剥离标签只留纯文本。
+  // （必须在早退 return 之前调用：hooks 顺序不能随 item 开关变化）
+  const descText = useMemo(
+    () => (item ? (detail?.videoInfo.desc || '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim() : ''),
+    [item, detail?.videoInfo.desc]
+  );
+  const descOverflow = descText.length > 120;
+
   if (!item) return null;
 
   const episodes = detail ? (reversed ? [...detail.episodes].reverse() : detail.episodes) : [];
@@ -127,15 +136,6 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
     info?.actor && ['主演', info.actor],
     remarks && ['备注', remarks],
   ].filter(Boolean) as [string, string][];
-
-  // 简介：部分源（量子/魔都等）的 vod_content 带 <p> 等 HTML 标签，
-  // 源数据不可信不能直接渲染 HTML，剥离标签只留纯文本；
-  // 过长时截断（line-clamp-3）+ 展开/收起
-  const descText = useMemo(
-    () => (info?.desc ? info.desc.replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim() : ''),
-    [info?.desc]
-  );
-  const descOverflow = descText.length > 120;
 
   return (
     <div
